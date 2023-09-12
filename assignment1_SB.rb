@@ -12,7 +12,6 @@ event_information = {}
 student_information = {}
 
 # Create a new hash map to store the potential activities
-for_potential_events = {}
 
 # Read the 'Event Information' CSV file and store the values in the hash map
 CSV.foreach('input_event.csv', headers: true) do |row|
