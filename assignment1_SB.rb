@@ -14,7 +14,7 @@ student_information = {}
 # Create a new hash map to store the potential activities
 
 # Read the 'Event Information' CSV file and store the values in the hash map
-CSV.foreach('input_event.csv', headers: true) do |row|
+CSV.foreach('event.csv', headers: true) do |row|
 
   event_information[row['Event-ID']] = {
 
@@ -28,17 +28,17 @@ CSV.foreach('input_event.csv', headers: true) do |row|
 end
 
 # Read the 'Student Information' CSV file and store the values in the hash map
-CSV.foreach('input_student.csv', headers: true) do |row|
+CSV.foreach('student.csv', headers: true) do |row|
 
   student_information[row['Student-ID']] = {
 
     'Interests' => row['Interests'].split('; ')
-
+    
   }
 
 end
 
-# Map student-interest to event-issues to find potential activities
+# ***Map student-interest to event-issues to find potential activities***
 
 # Declare interests array globally to use in event_information block
 student_interests = []
@@ -47,16 +47,10 @@ student_information.each do |student_id, student_info| # block params
 
   # check if we are iterating correctly
   # puts "#{key}: #{value}"
-
-  # store interests as an array of strings
-  # must be able to hold up to 3 interests
+  # store interests as an array of strings; must be able to hold up to 3 interests
   student_interests = student_info['Interests']
-  #for_potential_events[student_id] = []
-  
-  # puts student_interests
+  puts student_interests
 
-  # iterate through each interest
-  # student_interests.each do |interests|...end
 end 
 
 event_information.each do |event_id, event_info|
