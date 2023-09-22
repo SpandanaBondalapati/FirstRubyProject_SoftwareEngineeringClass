@@ -1,4 +1,0 @@
-Number of students: 222
-Number of events that can run: 55
-Number of events that may be canceled: 5
-Number of events that have been canceled: 5
