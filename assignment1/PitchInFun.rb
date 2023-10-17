@@ -1,4 +1,3 @@
-
 # Spandana Bondalapati CSC415-01
 # PitchInFun - (Ruby Assignment 1)
 # Relevant 'input' files: PitchInFun.rb, events2.csv, interests2.csv
@@ -11,278 +10,346 @@
 # most relavent to a student's interest. The algorithm makes sure to give students who listed any valid
 # issues the lowest priority and randomlly assigns them to acitives that have the least amount of students.
 
-# Last Modified: September 21st, 2023
+# Last Modified (For Inital Submission): September 21st, 2023
+
+=begin 
+
+Updated Capabilities Comment: For the the assignment 1 revision, the focus is on improving my project's modulairty as well as implementing 
+the missing user interaction where the user can specify their input and output file names. 
+
+* I unfortunately ran out of time to properly comment the code again, but got full marks on the previous submission for comments
+
+=end
 
 require 'csv'
 
-# Initalize Hash Maps
-event_information = {}
-student_information = {}
-potential_projects = {}
-assigned_activity = {}
-priority_proj_queue = {} # key-value is event ID => number of volunteers
-
-# Initalize Arrays
-students_with_invalid_interests = []
-student_interests = []
-event_issues = []
-canceled_events = []
+# Declare a list of valid social issues to reference
 valid_interests = ["food insecurity", "poverty", "racial inequality", "climate change", "homelessness", "healthcare", "gender inequality"]
 
-# Read the events CSV file and store the values in the hash map called 'Event-Information'
-# The key is the volunteering event ID and the values are the event attributes such as name, event issues, minimumum + maximum students
-CSV.foreach('events2.csv', headers: true) do |row|
+class ReadEvent
+  attr_reader :event_name, :event_issues, :min_students, :max_students
 
-  # note: The .to_i ruby method coverts the string to an integer
-  event_information[row['Event-Id']] = {
-    'Event-Name' => row['Event-Name'],
-    'Event-Issues' => row['Event-Issues'].split('; '),
-    'Min-Students' => row['Min-Students'].to_i,
-    'Max-Students' => row['Max-Students'].to_i
-  }
+  # Read the events CSV file and store the values in the hash map called 'Event-Information'
+  # The key is the volunteering event ID and the values are the event attributes such as name, event issues, minimumum + maximum students
+  def initialize(event_name, event_issues, min_students, max_students)
+    @event_name = event_name
+    @event_issues = event_issues
+    @min_students = min_students
+    @max_students = max_students
+  end
+
+  def self.populate_event_hash(file)
+    event_information = {}
+
+    CSV.foreach(file, headers: true) do |row|
+      event_information[row['Event-Id']] = ReadEvent.new(
+        row['Event-Name'],
+        row['Event-Issues'].split('; '),
+        row['Min-Students'].to_i,
+        row['Max-Students'].to_i
+      )
+    end
+
+    # Print the event information
+    event_information.each do |key, event|
+      #puts "#{key} : #{event.event_name}, #{event.event_issues.join(', ')}, #{event.min_students}, #{event.max_students}"
+    end
+    
+  end
+end
+
+class ReadInterest
+
+  # Allows the instance variables to be read outside the class
+  attr_reader :stud_id, :interests
+
+  # Constructor for the class
+  def initialize(stud_id, interests)
+    @stud_id = stud_id
+    @interests = interests
+  end
+
+  def self.populate_student_hash(file)
+
+    student_information = {}
+
+    # Read the CSV file and store the values in the hash map called 'Student-Information'
+    # The key is the student-ID and the value is the social issues the student is interested in volunteering for.
+    # The program will later check if the students interests are valid (from the valid_interests array)
+    CSV.foreach(file, headers: true) do |row|
+      student_information[row['Student-Id']] = ReadInterest.new(
+        row['Student-Id'],
+        row['Interests'].split('; ')
+
+      )
+    end
+
+    # Print the student information
+    student_information.each do |key, student_info|
+      #puts "#{key} : #{student_info.interests.join(', ')}"
+    end
+  end
 
 end
 
-# Read the CSV file and store the values in the hash map called 'Student-Information'
-# The key is the student-ID and the value is the social issues the student is interested in volunteering for.
-# The program will later check if the students interests are valid (from the valid_interests array)
-CSV.foreach('interests2.csv', headers: true) do |row|
-
-  student_information[row['Student-Id']] = {
-    'Interests' => row['Interests'].split('; ')
-  }
-
-end
-
+# Class to handle valid students and match them with events
 # In this segment of code, I find projects that students (who put down only valid interests) could potentially be placed into.
 # I determine if a project is a 'potential project' if the event has *any* social issues that the valid student had listed.
 # Here, we are iterating through the student_information hash in order to identify which are potential projects for each student
-student_information.each do |student_id, student_info| # block params
+class ValidStudentHandler
 
-  # For debugging purposes: check if the program is iterating through the hash correctly
-  # "#{key}: #{value}"  
+  attr_reader :student_information, :event_information, :valid_interests, :potential_projects, :priority_proj_queue, :students_with_invalid_interests
 
-  # Store interests as an array of strings. Student must list 2 to 4 interests.  
-  student_interests = student_info['Interests']
+  # Constructor for the class
+  def initialize(student_information, event_information, valid_interests)
 
-  # Define a hash map to store potential projects for each student (Student-ID=> The IDs of potential projects)
-  potential_projects[student_id] = []
+    @student_information = student_information
+    @event_information = event_information
+    @valid_interests = valid_interests
+    @potential_projects = {}
+    @priority_proj_queue = {}
 
-  # Students who have listed one or more invalid interests (one that is not in the valid students array) is deemed an "invalid student"
-  # Invalid students are placed into the 'students_with_invalid_interests' hash-map and are handled after all the students who listed purely
-  # valid issues are processed. This way students who try to "cheat the system" are given lower prirorty than the students who followed the rules
-  if (student_interests - valid_interests).any?
-    students_with_invalid_interests << student_id
+  end
 
-    # Filter the invalid interests out of the student_interests array to only contain valid interests.
-    # Then, we can use the student_interests hash which has only valid social issues to find potential projects
-    student_interests = student_interests & valid_interests
 
-  end  
+  # Determine potential projects for each student based on their interests
+  def determine_potential_projects
+    @students_with_invalid_interests = []
+    @student_information.each do |student_id, student_info|
+      student_interests = student_info.interests
+  
+      @potential_projects[student_id] = []
+  
+      if (student_interests - @valid_interests).any?
+        @students_with_invalid_interests << student_id
+        student_interests = student_interests & @valid_interests
+      end  
+  
+      @event_information.each do |event_id, event_info|
+        event_issues = event_info.event_issues
+        if (student_interests & event_issues).any?
+          @potential_projects[student_id] << event_id 
+        end
+      end
+    end
+    @potential_projects
+  end
+  
 
-  # Iterate through the event_information hash map to populate the event_issues array
-  event_information.each do |event_id, event_info|
+  # Initialize priority queue for projects
+  def init_priority_proj_queue
+    @event_information.each do |event_id, _| 
+      @priority_proj_queue[event_id] = 0
+    end
+    @priority_proj_queue
+  end
 
-    event_issues = event_info['Event-Issues']
+  # Assign students to their best potential projects
+  def assign_best_projects
+    assigned_activity = {}
 
-    # Debugging Purposes - printing out events_information hashmap
-    #event_issues.each do |issue|
-      #puts "#{event_id}: #{issue}"
-    #end
+    @potential_projects.each do |student_id, projects|
+      project_scores = {}
+      projects.each do |project_id|
+        #event_issues = @event_information[project_id]['Event-Issues']
+        event_issues = @event_information[project_id].event_issues
+        #student_interests = @student_information[student_id]['Interests']
+        student_interests = @student_information[student_id].interests
+        num_similar = (student_interests & event_issues).size
+        project_scores[project_id] = num_similar
+      end
 
-    # This if-statement checks if there is any overlap between student-interests and event-issues. If there is overlap, then the event
-    # is considered a potential event for that specific student and is appended. 
-    # potential_projects hash map ------> Student-ID => Potential Event ID
-    if (student_interests & event_issues).any?
-      potential_projects[student_id] << event_id 
+      sorted_scores = project_scores.sort_by do |project_id, score|
+        [-score, @priority_proj_queue[project_id]]
+      end
+
+      best_project = sorted_scores.find do |project_id, _|
+        event_info = @event_information[project_id]
+        #@priority_proj_queue[project_id] < event_info['Max-Students']
+        @priority_proj_queue[project_id] < event_info.max_students
+      end
+
+      if best_project
+        best_project_id = best_project.first
+        assigned_activity[student_id] = best_project_id
+        @priority_proj_queue[best_project_id] += 1
+      end
     end
 
+    assigned_activity
   end
 
-end # end of student_information hash iteration loop (comment for my own organization)
-
-
-# Now that we have all of our valid student's mapped to their potential projects, we can create a scheduling algorithm to
-# figure out the best potential project to put them into based on various factors such a number of overlapping interests as
-# well as if there is space available in the volunteering event.
-
-# Define and intialize the priority queue of potential events, where the event with the lowest number of students is at the 
-# top and the event with the highest number of students is at the bottom. 
-# Right now, the number of volunteers for each event ID is 0 as no students/volunteers have been assigned to projects yet. 
-event_information.each do |event_id, _| 
-
-  priority_proj_queue[event_id] = 0
-
-end
-
-# puts priority_proj_queue ---> DEBUGGING PURPOSES (can ignore)
-
-# In the below potential_projects block, I am iterating through the potential projects hashmap to find out how many
-# social issues listed by a student overlaps with the event-issues of each of their potential events they may want to do. 
-# I am doing this because I want to (preferably) assign students to an event they are most interested in doing.
-
-potential_projects.each do |student_id, projects|
-
-  # The project_scores hash map will have the project-ID mapped to the number of similar interests a student has with it
-  project_scores = {}
   
-  projects.each do |project_id|
-
-    # Here I am once again populating the event_issues and student_interests from the event_information and student_information hashes
-    event_issues = event_information[project_id]['Event-Issues']
-    student_interests = student_information[student_id]['Interests']
-  
-    # Then, I find the NUMBER of similar interests a student has for a particular project/event (project-id)
-    num_similar = (student_interests & event_issues).size
-    project_scores[project_id] = num_similar
-
-  end
-
-  # sorted scores has the priority score of each project
-  sorted_scores = project_scores.sort_by do |project_id, score| # 'score' is essentially num_similar
-
-    [-score, priority_proj_queue[project_id]] 
-    # priority_proj_queue[project_id] is essentially making sure if two project have the same
-    # amount of similar interests, then the project with the least amount of assigned students comes first.
-    # We do this prioritize volunteering projects with the least amount of volunteers to minimize cancelations
-
-  end
-
-  # puts sorted_scores ---> for debugging purposes
-
-  # We must make sure we don't go over the maximum number of students
-  best_project = sorted_scores.find do |project_id, _|
-    event_info = event_information[project_id]
-    priority_proj_queue[project_id] < event_info['Max-Students']
-  end
-
-  if best_project
-
-    # Get the project ID with the .first method
-    best_project_id = best_project.first
-    # I hashed the best project's ID to the student ID in the assigned_activity hash-map
-    assigned_activity[student_id] = best_project_id
-
-    # Increase the volunteer count for the chosen project the student is assinged to.
-    # priority_proj_queue[best_project_id] accesses the value associated with the best_project_id
-    # best_project_id is acting as a key to look up the associated value (current volunteer count)
-    priority_proj_queue[best_project_id] += 1
-  end
 
 end
 
 # Since all the "valid students" (students who only listed valid issues) are delt with
 # we can now focus on assinging students who listed all or a few invalid issues to events
-
 # Any student who listed even one invalid issue is placed randomlly into an event
-
 # Iterate through the students_with_invalid_interests hash-map
-students_with_invalid_interests.each do |student_id|
+class HandleInvalidStudents
+  attr_reader :students_with_invalid_interests
+
   
-  # Find the projects with the least number of students without going over max students limit
-  least_volunteers_project_ids = priority_proj_queue.select do |event_id, x| 
-    x < event_information[event_id]['Max-Students'] && x == priority_proj_queue.values.min 
-  end.keys
+  def initialize(event_information)
+    @event_information = event_information
+  end
+
   
-  # We are checking if there are any elements/IDs in the least_volunteers_project_ids ARRAY
-  if least_volunteers_project_ids.any?
 
-    # The .sample ruby method is essentially selecting a random element (or ID in this case)
-    # and assigning it to the best_project_id variable
-    best_project_id = least_volunteers_project_ids.sample
+  # Assigns students who have invalid interests to events
+  def assign_students(students_with_invalid_interests, priority_proj_queue)
+    assigned_activity = {}
 
-   else 
-     # puts no suitable project for student #{student_id}"
-     next
+    students_with_invalid_interests.each do |student_id|
+      best_project_id = find_least_volunteer_project(priority_proj_queue)
+      next unless best_project_id
+      
+      priority_proj_queue[best_project_id] += 1
+      assigned_activity[student_id] = best_project_id
+    end
 
+    assigned_activity
   end
   
-  # Increase the volunteer count for the (randomly) chosen project
-  priority_proj_queue[best_project_id] += 1
+  # Returns events that must be canceled due to not meeting minimum student count
+  def events_to_cancel(priority_proj_queue)
+    canceled_events = []
+    
+    priority_proj_queue.each do |event_id, student_count|
+      if student_count < @event_information[event_id].min_students
+        canceled_events << event_id
+      end
+    end
+    
+    canceled_events
+  end
 
-  # Assign the chosen project to the student. We hash the best project ID to the student ID
-  assigned_activity[student_id] = best_project_id
+  private
 
-end
+  # Selects a project with the least number of students without going over max limit
+  def find_least_volunteer_project(priority_proj_queue)
+    least_volunteers_project_ids = priority_proj_queue.select do |event_id, x| 
+      x < @event_information[event_id].max_students && x == priority_proj_queue.values.min
+    end.keys
 
-
-# Must cancel an event if the volunteer count is less than the minimimum required for the event
-priority_proj_queue.each do |event_id, student_count|
-  if student_count < event_information[event_id]['Min-Students']
-    canceled_events << event_id # append event ID to hash
+    least_volunteers_project_ids.any? ? least_volunteers_project_ids.sample : nil
   end
 end
 
-# We can print which events were canceled
-# canceled_events.each do |event_id|
-#    puts "Activity with event-id #{event_id} has been canceled."
-# end
-
-# Can print the volunteering activity ID and all its assigned students to double check everything
-# assigned_activity.each do |student_id, project_id|
-#   puts "Student #{student_id} has been assigned to project #{project_id}"
-# end
-
-# Print to see potential events
-# potential_projects.each do |student_id, potential_projects|
-#   # puts "Student #{student_id} potential events: #{potential_projects.join(', ')}"
-# end
-
-# Make output_file1 CSV and output_file3 TXT file (summary)
-
-CSV.open('output_file1.csv', 'wb') do |csv|
-
-  csv << ['Event-Id', 'Event-Name', 'Event-Issues', 'Min-Students', 'Max-Students', 'Num-Students', 'Roster', 'Status']
+class OutputHandler
+  def initialize(event_information, assigned_activity, priority_proj_queue, student_information, canceled_events, students_with_invalid_interests)
+    @event_information = event_information
+    @assigned_activity = assigned_activity
+    @priority_proj_queue = priority_proj_queue
+    @student_information = student_information
+    @canceled_events = canceled_events
+    @students_with_invalid_interests = students_with_invalid_interests
+  end
   
-  event_information.each do |event_id, event_info|
 
-    roster = assigned_activity.select { |student_id, assigned_event_id| assigned_event_id == event_id }.map do |student_id, _|
+  def generate_csv_output(filename)
+    CSV.open(filename, 'wb') do |csv|
+      csv << ['Event-Id', 'Event-Name', 'Event-Issues', 'Min-Students', 'Max-Students', 'Num-Students', 'Roster', 'Status']
+      
+      @event_information.each do |event_id, event_info|
+        csv << event_row(event_id, event_info)
+      end
+    end
+  end
+  
+  def generate_summary_output(filename)
+    File.open(filename, 'w') do |file|
+      summary_content.each { |line| file.puts line }
+    end
+  end
+  
+  def print_summary_to_terminal
+    summary_content.each { |line| puts line }
+  end
 
-      matching_issues = (student_information[student_id]['Interests'] & event_info['Event-Issues']).join(', ')
+  private
+
+  def event_row(event_id, event_info)
+    roster = @assigned_activity.select { |student_id, assigned_event_id| assigned_event_id == event_id }.map do |student_id, _|
+      matching_issues = (@student_information[student_id].interests & event_info.event_issues).join(', ')
       "#{student_id} #{matching_issues}"
-
     end.join('; ')
 
-    num_students = priority_proj_queue[event_id]
+    num_students = @priority_proj_queue[event_id]
     roster = 'None' if roster.empty?
 
-    status = if canceled_events.include?(event_id)
-               'Canceled'
-             elsif num_students <= event_info['Max-Students'] && num_students >= event_info['Min-Students']
-               'Ok'
-             else
-               'Problem'
-             end
+    status = determine_status(event_id, num_students, event_info)
 
-    csv << [event_id, event_info['Event-Name'], event_info['Event-Issues'].join('; '), event_info['Min-Students'], event_info['Max-Students'], num_students, roster, status]
-
+    [event_id, event_info.event_name, event_info.event_issues.join('; '), event_info.min_students, event_info.max_students, num_students, roster, status]
   end
+
+  def determine_status(event_id, num_students, event_info)
+    if @canceled_events.include?(event_id)
+      'Canceled'
+    elsif num_students <= event_info.max_students && num_students >= event_info.min_students
+      'Ok'
+    else
+      'Problem'
+    end
+  end
+
+  # Use this function to display the summary 
+  def summary_content
+
+    #valid_student_count = @student_information.size - students_with_invalid_interests.size
+    valid_student_count = @student_information.size - @students_with_invalid_interests.size
+    events_can_run = @event_information.count { |event_id, event_info| @priority_proj_queue[event_id] >= event_info.min_students }
+    events_may_cancel = @event_information.count { |event_id, event_info| @priority_proj_queue[event_id] < event_info.min_students && @priority_proj_queue[event_id] > 0 }
+    events_canceled = @canceled_events.size
+
+    [
+      "Number of students: #{valid_student_count}",
+      "Number of events that can run: #{events_can_run}",
+      "Number of events that may be canceled: #{events_may_cancel}",
+      "Number of events that have been canceled: #{events_canceled}"
+    ]
+  end
+
 end
 
-# Generate output text file
 
-# Do necessary calculations for the summary
-valid_student_count = student_information.size - students_with_invalid_interests.size
-events_can_run = event_information.count { |event_id, event_info| priority_proj_queue[event_id] >= event_info['Min-Students'] }
-events_may_cancel = event_information.count { |event_id, event_info| priority_proj_queue[event_id] < event_info['Min-Students'] && priority_proj_queue[event_id] > 0 }
-events_canceled = canceled_events.size
+# Include user interaction to specify the file names
+# Include error handling in case they specify an input file that is not included in directory
+def prompt_for_filename(message)
+  puts message
+  filename = gets.chomp
 
-File.open('output_file3.txt', 'w') do |file|
+  until File.exist?(filename)
+    puts "File '#{filename}' does not exist. Please provide a valid filename."
+    filename = gets.chomp
+  end
 
-  file.puts "Number of students: #{valid_student_count}"
-  file.puts "Number of events that can run: #{events_can_run}"
-  file.puts "Number of events that may be canceled: #{events_may_cancel}"
-  file.puts "Number of events that have been canceled: #{events_canceled}"
+  filename
 end
 
+# Method calls and creating instances of the classes that were made:
 
-# Also, display summary to the terminal screen
+event_file = prompt_for_filename("Please provide the name of the events CSV file:")
+interest_file = prompt_for_filename("Please provide the name of the interests CSV file:")
+output_csv_file = prompt_for_filename("Please provide the name for the CSV output file:")
+output_summary_file = prompt_for_filename("Please provide the name for the summary output file:")
 
-puts "Number of students: #{valid_student_count}"
-puts "Number of events that can run: #{events_can_run}"
-puts "Number of events that may be canceled: #{events_may_cancel}"
-puts "Number of events that have been canceled: #{events_canceled}"
+event_information = ReadEvent.populate_event_hash(event_file)
+student_information = ReadInterest.populate_student_hash(interest_file)
 
-# # puts students_with_invalid_interests --> for debugging
+valid_student_handler = ValidStudentHandler.new(student_information, event_information, valid_interests)
+potential_projects = valid_student_handler.determine_potential_projects
+priority_proj_queue = valid_student_handler.init_priority_proj_queue
+assigned_activity = valid_student_handler.assign_best_projects
+
+# Handle invalid students
+invalid_students_handler = HandleInvalidStudents.new(event_information)
+assigned_activity_for_invalid_students = invalid_students_handler.assign_students(valid_student_handler.students_with_invalid_interests, priority_proj_queue)
+canceled_events = invalid_students_handler.events_to_cancel(priority_proj_queue)
 
 
+output_handler = OutputHandler.new(event_information, assigned_activity, priority_proj_queue, student_information, canceled_events, valid_student_handler.students_with_invalid_interests)
+output_handler.generate_csv_output('output_file1.csv')
+output_handler.generate_summary_output('output_file3.txt')
+output_handler.print_summary_to_terminal()
